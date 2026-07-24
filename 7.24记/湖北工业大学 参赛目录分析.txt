@@ -1,0 +1,464 @@
+湖北工业大学 参赛目录分析
+该目录包含 两个项目，分别对应两个代码仓库：
+
+一、project3130810-386801 — Cyberdog 比赛 Demo 工作区
+这是一个 ROS 2 工作空间，用于小米 Cyberdog 机器狗比赛，包含视觉感知、运动控制、LCM 通信和自定义步态。队伍通过五个关卡完成比赛。
+
+【目录结构】
+project3130810-386801/
+├── README.md
+├── .gitignore
+├── docs/
+│   ├── cyberdog_demo_technical_document.md   # 技术文档
+│   ├── cyberdog_demo_report_v4_20260531_170644.pptx  # 汇报PPT
+│   └── .~cyberdog_demo_report_v4_20260531_170644.pptx # 临时备份文件
+│
+└── src/
+    ├── cyberdog_demo/                         # 【核心】比赛Demo主包
+    │   ├── setup.py / setup.cfg / package.xml  # ROS2 包配置
+    │   └── cyberdog_demo/
+    │       ├── __init__.py
+    │       ├── master.py                      # 【核心】比赛主控节点
+    │       ├── test_demo.py                   # 测试主控节点
+    │       ├── test3.py                       # 第三关PID独立测试工具
+    │       ├── adjust_node.py                  # 前向相机边线检测节点
+    │       ├── fisheyes_adjust_node.py         # 双鱼眼相机球/线识别节点
+    │       ├── ground_node.py                  # 扫地相机边线检测节点
+    │       ├── seek_001_node.py                # 前向橙色球识别节点
+    │       ├── Gait_dp/                        # Moonwalk步态配置
+    │       │   ├── Gait_Def_moonwalk.toml
+    │       │   ├── Gait_Params_moonwalk.toml
+    │       │   ├── Gait_Params_moonwalk_full.toml
+    │       │   ├── model_Def.toml
+    │       │   ├── model_Params.toml
+    │       │   └── model_Params_full.toml
+    │       └── Gait_use/                       # 关卡专用步态配置
+    │           ├── sec001_gait/                # 第一关：初始步态
+    │           │   ├── sec001_Def.toml
+    │           │   ├── sec001_Param.toml
+    │           │   └── sec001_Param_full.toml
+    │           ├── low_gait/                   # 第四关：低姿态匍匐步态
+    │           │   ├── low_Def.toml
+    │           │   ├── low_Params.toml
+    │           │   └── low_Params_full.toml
+    │           ├── low_gait_re/                # 第四关：低姿态反向/恢复步态
+    │           │   ├── low_Def.toml
+    │           │   ├── low_Params.toml
+    │           │   └── low_Params_full.toml
+    │           └── sec005_gait/                # 第五关：保留参数
+    │               └── low_Params.toml
+    │
+    ├── cyberdog_interfaces/                    # LCM 通信接口包
+    │   ├── setup.py / setup.cfg / package.xml  # ROS2 包配置
+    │   ├── cyberdog_interfaces/
+    │   │   ├── __init__.py
+    │   │   ├── motion_interface.py             # 动作接口元数据库(25个预设动作)
+    │   │   ├── robot_control_cmd_lcmt.py       # 控制命令 LCM 结构体
+    │   │   ├── robot_control_response_lcmt.py  # 控制响应 LCM 结构体
+    │   │   ├── file_send_lcmt.py               # 文件发送 LCM 结构体
+    │   │   ├── file_recv_lcmt.py               # 文件接收 LCM 结构体
+    │   │   └── test.py                         # 通信测试脚本
+    │   └── lcm_types/                          # LCM IDL 原始定义
+    │       ├── robot_control_cmd_lcmt.lcm
+    │       ├── robot_control_response_lcmt.lcm
+    │       └── file_recv_lcmt.lcm
+    │
+    ├── cyberdog_test/                          # 测试/占位包
+    │   ├── setup.py / setup.cfg / package.xml
+    │   └── cyberdog_test/
+    │       ├── __init__.py
+    │       └── test.py
+    │
+    └── launch/                                 # 启动脚本
+        ├── launch.py                           # 一键启动入口(主赛)
+        ├── telaunch.py                         # 测试启动入口
+        ├── test3launch.py                      # 第三关PID调参启动
+        ├── master.sh                           # 启动 master 节点
+        ├── test_demo.sh                        # 启动测试主控
+        ├── adjust_node.sh                      # 启动前向相机节点
+        ├── fisheyes_adjust_node.sh             # 启动鱼眼相机节点
+        ├── ground_node.sh                      # 启动扫地相机节点
+        ├── seek_001_node.sh                    # 启动橙色球检测节点
+        └── test3.sh                            # 启动 test3
+
+1. 文档
+README.md
+项目说明文档。描述工程结构（cyberdog_demo、cyberdog_interfaces、cyberdog_test、launch、docs），环境要求（ROS 2 Galactic、Python 3、OpenCV、LCM），构建和运行方式，以及分支/提交规范。
+
+cyberdog_demo_technical_document.md
+技术文档，详述系统架构、五关策略（跳跃→撞球→PID寻线→低姿通过→跳跃），节点与话题设计、LCM 运动控制接口、视觉处理算法、PID 控制参数和已知问题。
+
+2. 主控节点
+master.py — 比赛主控节点
+核心文件，包含三个重要类：
+
+类	                     作用
+PIDController	带积分限幅抗饱和的 PID 控制器（Kp=0.00170, Ki=0.00003, Kd=0.00010），输出限幅 ±0.30 rad/s
+PIDTelemetry	PID 遥测可视化窗口（OpenCV），实时显示 gap、vyaw、vy 及 P/I/D 分解曲线，支持 200 帧历史
+Robot_Ctrl_Node	LCM 通信封装，通过 UDP 组播发送 robot_control_cmd 和接收 robot_control_response，维持 10Hz 心跳
+masterNode      订阅 6 个视觉话题（adjust_topic、ground_topic、seek_001_topic、fish_rgap_topic、hit_ratio_topic、fish_line_topic），实现五关动作序列：
+第一关：mode=11 前进后用 mode=16（原地跳远）跳 5 次
+第二关：sec002_seek() 函数根据鱼眼相机的橙色球掩膜比例（left_ratio_hit/right_ratio_hit > 0.019~0.02）触发撞击，循环搜索 4 个球
+第三关：run_pid_align("ground", 526, vx=0.2) 用扫地相机 PID 寻线，526 轮 × 25Hz
+第四关：change_gait() 上传低姿态自定义步态（low_gait），用 mode=62, gait_id=110 低姿通过三个通道
+第五关：简化版方向校正后跳一次（鱼眼掩膜跳跃逻辑已注释）
+
+change_gait() 方法读取 TOML 步态文件，转换为 LCM 命令并通过 user_gait_file channel 上传。
+
+test_demo.py — 测试主控
+与 master.py 结构类似，包含 masterNode_test 类，用于第五关回环路测试。mode_pub_callback 会发布 master_mode_topic（master.py 中该发布被注释了）。sec002_seek() 有更大的撞击阈值（0.0362 vs 0.019）和不同的避障策略。Robot_Ctrl_Node 在此继承自 Node。
+
+test3.py — 第三关 PID 独立测试工具
+多模式测试工具，支持 5 种运行模式：
+
+模式	                参数	用途
+默认（trackbar）	无	OpenCV 滑块实时调 Kp/Ki/Kd，4 种 gap 输入（手动/阶跃/正弦/随机游走）
+--step	              阶跃响应	自动注入 ±80px 阶跃，分析超调量、上升时间、稳态时间
+--sine	              正弦跟踪	振幅 120px、周期 5s 的正弦波，观察 PID 平滑跟随能力
+--compare	      对比测试	同一输入下对比 PID vs Bang-Bang（±0.26）输出
+--live	              实机控制	连接 ROS + LCM，订阅真实 ground_topic，按 s 开始/停止寻线
+包含 PIDController、BangBangController、Telemetry（最大 400 帧历史）、TuningWindow（6 个 trackbar）、StepResponseAnalyzer 和 LiveRobotCtrl。
+
+3. 视觉感知节点
+adjust_node.py — 前向相机边线检测
+订阅 /rgb_camera/image_raw
+截取图像下 1/3 区域（ROI），转 HSV，用黄色阈值 [30,30,30]~[90,255,255] 分割赛道线
+过滤面积 < 2000 的轮廓，找最优双边界对（间距 200~400px，接近 300px 理想值）
+计算 gap = image_center - lane_center，7 帧滑动窗口平均
+25Hz 发布 "edge_num gap" 到 adjust_topic
+包含去噪锐化函数 denoise_and_sharpen() 和鱼眼畸变模拟函数 apply_fisheye_distortion_fast()
+OpenCV 可视化：显示 ROI 框、轮廓重心竖线（蓝）、图像中心线（白）、道路中心线（红）、gap 水平指示条
+
+ground_node.py — 扫地相机边线检测
+订阅 /rgb_camera/image_ground
+与 adjust_node 相同的处理流程（黄线 HSV 分割、轮廓检测、双边界对匹配、滑动窗口平滑）
+关键差异：使用完整图像（不裁剪），双线间距判据为 500~1100px（而非 200~400px），因为扫地相机离地面更近
+25Hz 发布 "edge_num gap" 到 ground_topic
+
+fisheyes_adjust_node.py — 双鱼眼相机球/线识别
+同时订阅 /image_left 和 /image_right
+定义相机内参矩阵 K 和畸变系数 D 用于鱼眼去畸变（实际未调用）
+图像裁剪：左图保留右 5/9，右图保留左 5/9，线检测用下 1/4
+三类 HSV 掩膜同时计算：
+
+掩膜	            阈值	             输出话题	            用途
+宽球体	  [10,130,80]~[180,210,160]     fish_rgap_topic	 计算 rgap = left_ratio*0.9 - right_ratio，用于方向纠偏
+窄橙色球   [10,130,80]~[100,210,160]	hit_ratio_topic	 面积占比 > 阈值触发撞击
+黄色边线   [30,30,30]~[90,255,255]	fish_line_topic	 道路边界掩膜占比，用于跳跃判定（已注释）
+过滤面积 < 2200 的轮廓，取最大轮廓计算面积占比。
+
+seek_001_node.py — 前向橙色球识别
+订阅 /rgb_camera/image_raw
+橙色 HSV 阈值 [10,130,80]~[100,210,160]
+取最大轮廓，计算面积占比 ratio 和水平偏差 dist
+25Hz 发布 "ratio dist" 到 seek_001_topic
+当前主要用于第一关前的橙色球搜索辅助，第二关主力是 fisheyes_adjust_node
+
+4. 通信接口
+robot_control_cmd_lcmt.py
+LCM 控制命令结构体（自动生成），包含 mode、gait_id、contact、life_count、vel_des[3]、rpy_des[3]、pos_des[3]、acc_des[6]、ctrl_point[3]、foot_pose[6]、step_height[2]、value、duration 字段。通过 UDP udpm://239.255.76.67:7671 组播发送。
+
+robot_control_response_lcmt.py
+LCM 控制反馈结构体，包含 mode、gait_id、contact、order_process_bar（≥95 认为完成）、switch_status、ori_error、footpos_error、motor_error[12]。通过 udpm://239.255.76.67:7670 接收。
+
+file_send_lcmt.py
+LCM 文件传输结构体，仅含 data 字符串字段。用于上传自定义步态定义（*_Def.toml）和参数（*_full.toml）。
+
+motion_interface.py
+动作接口元数据库，定义 25 个预设动作的元数据（编号、名称、mode/gait_id、允许切换列表、参数范围、备注），包括：急停(0)、站立(111)、姿态展示(201)、趴下(101/102)、慢走(303)、小跑(305)、快走(308)、四腿跳跑(301)、牵绳遛狗(125)、原地跳远(132)、旋转左跳(130)、原地跳起(136)、握左右手(141/142)、坐下(143)、扭屁股(144)、芭蕾舞(151)、太空步(152)、俯卧撑(174)等。提供 get_action_info() 和 validate_params() 方法。
+
+test.py
+测试用文件（未读取，但应该是通信测试脚本）。
+
+LCM 类型定义
+robot_control_cmd_lcmt.lcm 和 robot_control_response_lcmt.lcm 是 LCM IDL 定义文件。
+
+5. 启动脚本
+launch.py
+一键启动脚本，依次打开 4 个 gnome-terminal 运行 master、adjust_node、fisheyes_adjust_node、ground_node。
+
+Shell 脚本
+master.sh — 启动 master 节点
+
+adjust_node.sh — 启动 adjust_node
+
+fisheyes_adjust_node.sh — 启动鱼眼节点
+
+ground_node.sh — 启动扫地相机节点
+
+seek_001_node.sh — 启动橙色球检测
+
+test_demo.sh — 测试启动
+
+test3.sh — test3 启动
+
+telaunch.py — 测试启动入口（test_demo + adjust + fisheyes）
+
+test3launch.py — 第三关 PID 实机调参启动入口
+
+6. 步态配置文件
+Gait_use/ 目录
+子目录	                    用途
+sec001_gait/	第一关初始步态（sec001_Def.toml、sec001_Param.toml、sec001_Param_full.toml）
+low_gait/	低姿态通道前进步态（low_Def.toml、low_Params.toml、low_Params_full.toml）
+low_gait_re/	低姿态通道反向/恢复步态
+sec005_gait/	第五关保留参数（low_Params.toml）
+这些 TOML 文件通过 change_gait() 方法上传到运动控制板，定义自定义步态的机身速度、姿态、落足点、步高等参数。
+
+7. 构建配置
+文件	                                                            内容
+cyberdog_demo/package.xml	依赖 rclpy、std_msgs、sensor_msgs、cv_bridge、python3-opencv，注册 7 个 console_scripts                 入口
+cyberdog_interfaces/package.xml	依赖 lcm、geometry_msgs
+cyberdog_test/package.xml	测试/占位包
+setup.py / setup.cfg	        Python 包安装配置
+
+
+
+
+
+二、project3130810-387335 — 初赛提交材料
+队伍 ID：T2026105009910486，队伍名称：吉祥三宝
+
+【目录结构】
+project3130810-387335/
+└── T2026105009910486-初赛/
+    ├── T2026105009910486-设计文档.pdf          # PDF 设计文档
+    ├── T2026105009910486-作品说明.pptx          # PPT 作品说明
+    ├── T2026105009910486-作品录像.txt           # 视频链接
+    ├── T2026105009910486-作品录像.mp4           # 演示视频
+    │
+    └── T2026105009910486-源代码/
+        │
+        ├── bes_transmit/                       # 【C++】蓝牙/HTTP 传输桥接
+        │   ├── CMakeLists.txt / package.xml
+        │   ├── include/
+        │   │   ├── bes_transmit_center.hpp     # 传输中心（HTTP+Mqtt+文件上传）
+        │   │   ├── back_end_http.hpp           # HTTP 后端
+        │   │   ├── back_end_publisher.hpp      # MQTT 发布后端
+        │   │   ├── back_end_subscriber.hpp     # MQTT 订阅后端
+        │   │   ├── check_connection.hpp        # 连接检查
+        │   │   ├── posix_sockets.hpp           # POSIX socket 封装
+        │   │   └── file_uploading/
+        │   │       ├── file_uploading.h        # 文件上传头文件
+        │   │       └── lcm_log_uploader.hpp    # LCM 日志上传器
+        │   └── src/
+        │       ├── main.cpp                    # 传输中心主入口
+        │       ├── bes_transmit_center.cpp     # 传输中心实现
+        │       ├── file_uploading.cpp          # 文件上传实现
+        │       └── lcm_log_uploader.cpp        # LCM 日志上传实现
+        │
+        ├── bridges/                            # 协议桥接层
+        │   ├── README.md
+        │   ├── .gitignore / testpack
+        │   │
+        │   ├── cyberdog_grpc/                  # 【C++】手机 App gRPC 桥接
+        │   │   ├── CMakeLists.txt / package.xml / README.md
+        │   │   ├── protos/
+        │   │   │   └── cyberdog_app.proto      # gRPC 服务定义(sendMsg,heartbeat,getFile)
+        │   │   ├── include/
+        │   │   │   ├── cyberdog_app.hpp        # 主节点
+        │   │   │   ├── cyberdog_app_client.hpp # gRPC 客户端
+        │   │   │   ├── cyberdog_app_server.hpp # gRPC 服务端
+        │   │   │   ├── action_task.hpp         # 动作任务
+        │   │   │   ├── msg_dispatcher.hpp      # 消息分发器
+        │   │   │   ├── net_avalible.hpp        # 网络可用性检查
+        │   │   │   ├── ready_sn.hpp            # 序列号就绪
+        │   │   │   ├── threadsafe_queue.hpp    # 线程安全队列
+        │   │   │   ├── time_interval.hpp       # 时间间隔
+        │   │   │   └── transmit_files.hpp      # 文件传输
+        │   │   └── src/
+        │   │       ├── main.cpp                # gRPC 主入口
+        │   │       ├── cyberdog_app.cpp        # App 节点实现
+        │   │       ├── cyberdog_app_client.cpp # 客户端实现
+        │   │       ├── cyberdog_app_server.cpp # 服务端实现
+        │   │       └── timer_interval.cpp      # 定时器实现
+        │   │
+        │   ├── embed_protocol/                 # 【C++】CAN 协议抽象层
+        │   │   ├── CMakeLists.txt / package.xml / README.md / README_EN.md
+        │   │   ├── include/
+        │   │   │   ├── embed_protocol/
+        │   │   │   │   ├── embed_protocol.hpp  # 嵌入式协议主类
+        │   │   │   │   ├── protocol_base.hpp   # 协议基类
+        │   │   │   │   ├── can_protocol.hpp    # CAN 协议实现
+        │   │   │   │   └── common.hpp          # 公共定义
+        │   │   │   ├── embed_parser/
+        │   │   │   │   ├── parser_base.hpp     # 解析器基类
+        │   │   │   │   └── can_parser.hpp      # CAN 解析器
+        │   │   │   └── protocol/can/
+        │   │   │       ├── socket_can_receiver.hpp  # CAN 接收器
+        │   │   │       ├── socket_can_sender.hpp    # CAN 发送器
+        │   │   │       ├── socket_can_id.hpp        # CAN ID 定义
+        │   │   │       ├── socket_can_common.hpp    # CAN 公共
+        │   │   │       ├── can_utils.hpp            # CAN 工具函数
+        │   │   │       ├── toml_analysis.hpp        # TOML 解析(用于CAN配置)
+        │   │   │       └── visibility_control.hpp   # 可见性控制
+        │   │   └── test/embed_protocol_test/    # 协议测试(含 CAN TOML 测试用例)
+        │   │
+        │   ├── protocol/                       # 【LCM+ROS2】消息定义
+        │   │   ├── CMakeLists.txt / package.xml
+        │   │   ├── compile_lcm.cmake / compile_ros.cmake
+        │   │   ├── lcm/                        # ~15 个 .lcm 消息定义
+        │   │   │   ├── robot_control_cmd_lcmt.lcm
+        │   │   │   ├── robot_control_response_lcmt.lcm
+        │   │   │   ├── simulator_lcmt.lcm / simulator_state.lcm
+        │   │   │   ├── danger_states_lcmt.lcm
+        │   │   │   ├── localization_lcmt.lcm
+        │   │   │   ├── heightmap_lcmt.lcm
+        │   │   │   ├── microstrain_lcmt.lcm
+        │   │   │   ├── low_power_lcmt.lcm
+        │   │   │   ├── motion_feedback_lcmt.lcm
+        │   │   │   ├── state_estimator_lcmt.lcm
+        │   │   │   ├── file_send_lcmt.lcm
+        │   │   │   └── file_recv_lcmt.lcm
+        │   │   └── ros/                        # ~70 msg + ~50 srv + ~5 action
+        │   │       ├── msg/   (audio,Bluetooth,BMS,body,face,gesture,GPS,...)
+        │   │       ├── srv/   (account,audio,BLE,BMS,camera,connector,...)
+        │   │       └── action/(AutoCharging,Navigation,OverTheAir,...)
+        │   │
+        │   └── params/                         # TOML 配置文件
+        │       ├── CMakeLists.txt / package.xml
+        │       └── toml_config/
+        │           ├── bes_transmit/           # 传输模块配置
+        │           ├── cyberdog_grpc/           # gRPC 模块配置
+        │           ├── database/               # 数据库配置
+        │           ├── device/                 # 设备配置(battery,LED×4,UWB×6)
+        │           ├── interaction/            # 交互配置(audio,connector,gesture,...)
+        │           ├── manager/                # 管理器配置(状态机,心跳,自检)
+        │           └── sensors/               # 传感器配置(GPS,lidar,TOF×5,...)
+        │
+        ├── cyberdog_ws/                        # ROS 2 启动工作区
+        │   ├── README.md / .gitignore
+        │   ├── cyberdog_bringup/               # 启动配置
+        │   │   ├── automatic/ / bringup/       # 自动/手动启动脚本
+        │   │   ├── config/                     # YAML 配置文件
+        │   │   └── doc/                        # 文档(含架构图)
+        │   └── third_party/                    # 第三方库
+        │       ├── cpp_httplib/                # HTTP/HTTPS 库
+        │       ├── filesystem/                 # 文件系统库
+        │       ├── nvinference/                # NVIDIA 推理库
+        │       ├── rapidjson/                  # JSON 解析库
+        │       ├── toml/                       # TOML 解析库(toml11)
+        │       ├── xpack/                      # 序列化库
+        │       └── zxing/                      # 条码/二维码识别库
+        │
+        ├── manager/                            # 【C++】系统管理(6个子包)
+        │   ├── README.md
+        │   ├── black_box/                      # 黑盒数据记录
+        │   │   └── include/black_box/
+        │   ├── cyberdog_manager/               # 主管理器(核心编排)
+        │   │   └── include/cyberdog_manager/
+        │   ├── cyberdog_permissions/           # 权限管理
+        │   ├── low_power_consumption/          # 低功耗管理
+        │   │   └── include/low_power_consumption/
+        │   ├── manager_base/                   # 管理器基础框架
+        │   │   └── include/manager_base/
+        │   └── user_info_manager/              # 用户信息管理
+        │       └── include/user_info_manager/
+        │
+        ├── motion/                             # 【C++】运动控制(6个子包)
+        │   ├── README.md
+        │   ├── elec_skin/                      # 电子皮肤(触觉感知)
+        │   │   └── include/elec_skin/
+        │   ├── motion_action/                  # 动作管理(~200个预设动作TOML)
+        │   │   ├── include/motion_action/
+        │   │   ├── preset/                     # 动作预设文件(0~400号)
+        │   │   └── launch/ / scripts/
+        │   ├── motion_bridge/                  # 运动桥接(ROS2↔运动板)
+        │   │   └── include/motion_bridge/
+        │   ├── motion_manager/                 # 运动管理器(优先级调度)
+        │   │   ├── include/motion_manager/
+        │   │   └── config/                     # 优先级配置文件
+        │   ├── motion_utils/                   # 运动工具(边缘对齐,楼梯对齐)
+        │   │   ├── include/motion_utils/
+        │   │   └── config/
+        │   └── skin_manager/                   # 皮肤管理器
+        │       ├── include/skin_manager/
+        │       └── config/
+        │
+        ├── mqttc/                              # 【C】MQTT-C 客户端库
+        │   ├── CMakeLists.txt / package.xml
+        │   ├── include/mqttc/
+        │   └── src/
+        │       ├── mqtt.c                      # MQTT 3.1.1 协议完整实现
+        │       └── mqtt_pal.c                  # 平台抽象层(多平台socket)
+        │
+        └── utils/                              # 【C++】工具库(5个子包)
+            ├── README.md
+            ├── cyberdog_common/                # 通用工具(JSON,TOML,LCM,日志,MQ,信号量,FSM,FDS)
+            │   ├── include/cyberdog_common/
+            │   ├── src/
+            │   │   ├── cyberdog_log.cpp
+            │   │   ├── cyberdog_parameter.cpp
+            │   │   ├── cyberdog_fds_impl.cpp
+            │   │   └── cyberdog_json_test.cpp
+            │   ├── config/
+            │   └── test/  (MQ,TOML,日志,LCM,JSON各模块测试)
+            ├── cyberdog_debug/                 # 调试/backtrace 工具
+            │   └── include/cyberdog_debug/
+            ├── cyberdog_machine/               # 有限状态机框架
+            │   ├── include/cyberdog_machine/
+            │   ├── config/
+            │   └── test/  (actuator模拟,heartbeat测试)
+            ├── cyberdog_parameter/             # TOML 参数解析器
+            │   ├── include/cyberdog_parameter/
+            │   ├── src/
+            │   ├── scripts/
+            │   │   └── parser.py               # Python TOML 配置解析脚本
+            │   └── cmake/
+            └── cyberdog_system/                # 机器人指令/状态/代码定义
+                ├── include/cyberdog_system/
+                └── test/
+
+提交材料
+文件	                        说明
+T2026105009910486-设计文档.pdf	PDF 格式设计文档
+T2026105009910486-作品说明.pptx	PPT 作品说明
+T2026105009910486-作品录像.mp4	演示视频（也有百度网盘链接）
+
+源代码
+mqtt.c
+MQTT-C 客户端库（Liam Bindle 开源实现，MIT 协议）。完整实现 MQTT 3.1.1 协议：mqtt_connect()（连接）、mqtt_publish()（发布，支持 QoS 0/1/2）、mqtt_subscribe()（订阅）、mqtt_unsubscribe()（取消订阅）、mqtt_disconnect()（断开）、mqtt_ping()（心跳）、mqtt_sync()（同步收发）、mqtt_reconnect()（重连）。内部使用消息队列管理待发送/待确认消息，提供 keep-alive 机制。
+
+mqtt_pal.c
+MQTT 平台抽象层。多平台兼容的 socket 收发实现，支持：Unix/Linux（BSD socket / send/recv，处理 EAGAIN）、mbedTLS、WolfSSL、BearSSL、OpenSSL BIO、Windows（Winsock）。提供 mqtt_pal_sendall() 和 mqtt_pal_recvall() 的跨平台实现。
+
+cyberdog_log.cpp
+日志工厂类，使用 ROS 2 rclcpp::Logger，提供单例 CyberdogLoggerFactory::Get_Logger() 方法。
+
+cyberdog_parameter.cpp
+参数解析器，支持 TOML 和动态库（.so）两种格式。通过 Python C API 调用 Python 模块获取配置数据，使用 toml11 库解析。提供 GetString/GetDouble/GetInt/GetBool/SetXXX 等方法进行类型安全的配置读写，支持嵌套键（点号分隔）和数组表查询。
+
+cyberdog_fds_impl.cpp
+文件描述符相关实现
+
+cyberdog_json_test.cpp
+JSON 功能测试
+
+头文件
+cyberdog_common/ — 工具库：日志、JSON、TOML、LCM、消息队列、信号量、配置、有限状态机、FDS、双端队列
+cyberdog_machine/ — 状态机框架（心跳机制）
+cyberdog_system/ — 机器人指令/状态/代码定义
+cyberdog_debug/ — 调试/backtrace 工具
+cyberdog_parameter/ — TOML 参数解析器
+测试文件
+utils/cyberdog_common/test/ — 消息队列、TOML、日志、LCM、JSON 各模块测试
+utils/cyberdog_machine/test/ — 状态机测试（含 actuator 模拟、heartbeat 测试）
+utils/cyberdog_system/test/ — 机器人代码测试
+
+parser.py
+Python TOML 配置解析脚本，配合 C++ 参数解析器工作。
+
+CMakeLists.txt / package.xml
+ROS 2 包构建配置。mqttc 是 C 库，cyberdog_common、cyberdog_machine、cyberdog_system 等是 C++ ROS 2 包。
+
+总结
+两个项目共同构成了湖北工业大学参加 2026 年小米杯 Cyberdog 比赛的完整技术方案：
+
+维度	                     内容
+比赛策略	五关串联：跳跃过障 → 鱼眼寻球撞击 → PID 视觉寻线 → 低姿步态通过 → 跳跃结束
+感知系统	3 类相机（前向 RGB、左右鱼眼、扫地）+ HSV 颜色阈值分割 + 滑动窗口平滑
+控制系统	PID 控制器（偏航 + 横移）+ LCM UDP 组播协议 + 10Hz 心跳维持 + 自定义步态上传
+软件架构	ROS 2 Galactic + Python + OpenCV + C++ 工具库 + MQTT 通信
+测试能力	独立 PID 调参工具（5 种模式）、离线模拟、实机控制切换、阶跃/正弦分析
+基础设施	MQTT-C 客户端、TOML 参数系统、日志工厂、状态机、动作元数据库、多平台 socket 抽象
+
