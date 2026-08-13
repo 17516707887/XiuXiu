@@ -1,0 +1,24 @@
+在Linux系统上，最推荐的方法是使用 arp-scan 命令。它能主动扫描局域网，直接列出所有在线设备的IP和MAC地址。
+
+方法一：使用 arp-scan（最推荐）
+
+1. 安装工具：打开终端，根据你的Linux发行版输入命令：
+   · Debian/Ubuntu: sudo apt install arp-scan
+   · RHEL/CentOS/Fedora: sudo dnf install arp-scan
+2. 扫描网络：运行 sudo arp-scan --localnet。如果提示指定网卡，先用 ip addr 查看无线网卡名（如 wlan0），然后运行 sudo arp-scan -I wlan0 --localnet。
+3. 识别IP：终端会列出局域网内所有设备的IP和MAC地址。对照CyberDog 2的MAC地址，就能找到它的IP。
+
+方法二：使用 nmap（备选）
+
+如果 arp-scan 安装不了，可以试试 nmap。
+
+· 安装：sudo apt install nmap 或 sudo dnf install nmap
+· 扫描：先用 ip addr 查看你本机的IP网段（如 192.168.1.0/24），然后运行 sudo nmap -sn 192.168.1.0/24（请将IP段替换为你实际的网段）。
+
+方法三：查看 ARP 缓存表（快速但可能不完整）
+
+如果不想装新软件，可以先试试 arp -a或 cat /proc/net/arp。这只能看到最近通信过的设备，如果CyberDog 2刚连上可能找不到。可以先用 ping 命令扫描整个网段（如 ping -b 192.168.1.255）来刷新缓存，再查看。
+
+方法四：使用 netdiscover（Kali Linux 用户）
+
+如果你用的是Kali Linux，系统可能预装了 netdiscover。可以直接运行 sudo netdiscover -r 192.168.1.0/24 进行扫描。
